@@ -67,7 +67,8 @@ namespace ExtractBilibiliOffLineDownloadVideos
                 var obj = new
                 {
                     source = txt_SourceDir.Text,
-                    dest = txt_OutputDir.Text
+                    dest = txt_OutputDir.Text,
+                    ffmpeg = txt_ffmpegPath.Text
                 };
                 var text = JsonSerializer.Serialize(obj);
                 return text;
