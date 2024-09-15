@@ -36,12 +36,15 @@
             this.btn_ChooseOutputDir = new System.Windows.Forms.Button();
             this.txt_OutputDir = new System.Windows.Forms.TextBox();
             this.txt_Output = new System.Windows.Forms.TextBox();
+            this.label3 = new System.Windows.Forms.Label();
+            this.btn_ChooseFfmpeg = new System.Windows.Forms.Button();
+            this.txt_ffmpegPath = new System.Windows.Forms.TextBox();
             this.SuspendLayout();
             // 
             // btn_Exec
             // 
             this.btn_Exec.Cursor = System.Windows.Forms.Cursors.Hand;
-            this.btn_Exec.Location = new System.Drawing.Point(210, 90);
+            this.btn_Exec.Location = new System.Drawing.Point(390, 131);
             this.btn_Exec.Margin = new System.Windows.Forms.Padding(2);
             this.btn_Exec.Name = "btn_Exec";
             this.btn_Exec.Size = new System.Drawing.Size(150, 30);
@@ -106,7 +109,7 @@
             // 
             // txt_Output
             // 
-            this.txt_Output.Location = new System.Drawing.Point(14, 137);
+            this.txt_Output.Location = new System.Drawing.Point(12, 176);
             this.txt_Output.Multiline = true;
             this.txt_Output.Name = "txt_Output";
             this.txt_Output.ReadOnly = true;
@@ -114,11 +117,41 @@
             this.txt_Output.Size = new System.Drawing.Size(528, 193);
             this.txt_Output.TabIndex = 7;
             // 
+            // label3
+            // 
+            this.label3.AutoSize = true;
+            this.label3.Location = new System.Drawing.Point(12, 108);
+            this.label3.Name = "label3";
+            this.label3.Size = new System.Drawing.Size(65, 12);
+            this.label3.TabIndex = 10;
+            this.label3.Text = "ffmpeg路径";
+            // 
+            // btn_ChooseFfmpeg
+            // 
+            this.btn_ChooseFfmpeg.Location = new System.Drawing.Point(467, 103);
+            this.btn_ChooseFfmpeg.Name = "btn_ChooseFfmpeg";
+            this.btn_ChooseFfmpeg.Size = new System.Drawing.Size(75, 23);
+            this.btn_ChooseFfmpeg.TabIndex = 9;
+            this.btn_ChooseFfmpeg.Text = "选择";
+            this.btn_ChooseFfmpeg.UseVisualStyleBackColor = true;
+            this.btn_ChooseFfmpeg.Click += new System.EventHandler(this.btn_ChooseFfmpeg_Click);
+            // 
+            // txt_ffmpegPath
+            // 
+            this.txt_ffmpegPath.Location = new System.Drawing.Point(96, 105);
+            this.txt_ffmpegPath.Margin = new System.Windows.Forms.Padding(2);
+            this.txt_ffmpegPath.Name = "txt_ffmpegPath";
+            this.txt_ffmpegPath.Size = new System.Drawing.Size(358, 21);
+            this.txt_ffmpegPath.TabIndex = 8;
+            // 
             // Form1
             // 
             this.AutoScaleDimensions = new System.Drawing.SizeF(6F, 12F);
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
-            this.ClientSize = new System.Drawing.Size(554, 342);
+            this.ClientSize = new System.Drawing.Size(554, 381);
+            this.Controls.Add(this.label3);
+            this.Controls.Add(this.btn_ChooseFfmpeg);
+            this.Controls.Add(this.txt_ffmpegPath);
             this.Controls.Add(this.btn_Exec);
             this.Controls.Add(this.txt_Output);
             this.Controls.Add(this.label2);
@@ -145,6 +178,9 @@
         private System.Windows.Forms.Button btn_ChooseOutputDir;
         private System.Windows.Forms.TextBox txt_OutputDir;
         private System.Windows.Forms.TextBox txt_Output;
+        private System.Windows.Forms.Label label3;
+        private System.Windows.Forms.Button btn_ChooseFfmpeg;
+        private System.Windows.Forms.TextBox txt_ffmpegPath;
     }
 }
 

@@ -7,6 +7,7 @@ using System.Text;
 using System.Windows.Forms;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Net;
 
 namespace ExtractBilibiliOffLineDownloadVideos
 {
@@ -20,7 +21,7 @@ namespace ExtractBilibiliOffLineDownloadVideos
             InitializeComponent();
             outputBuilder = new StringBuilder();
             //固定的配置文件路径
-            configPath = Path.Combine(Assembly.GetExecutingAssembly().Location, "config.json");
+            configPath = Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location), "config.json");
             //尝试加载配置文件内容
             if (File.Exists(configPath))
             {
@@ -28,8 +29,9 @@ namespace ExtractBilibiliOffLineDownloadVideos
                 try
                 {
                     var configObj =JsonNode.Parse(configText);
-                    txt_OutputDir.Text = configObj["dest"].ToJsonString();
-                    txt_SourceDir.Text = configObj["source"].ToJsonString();
+                    txt_OutputDir.Text = configObj["dest"].GetValue<string>();
+                    txt_SourceDir.Text = configObj["source"].GetValue<string>();
+                    txt_ffmpegPath.Text = configObj["ffmpeg"].GetValue<string>();
                 }
                 catch (Exception ex)
                 {
@@ -39,11 +41,15 @@ namespace ExtractBilibiliOffLineDownloadVideos
                 {
                     if (!Directory.Exists(txt_OutputDir.Text))
                     {
-                        writeOutputlog("config.json中的输出目录无效。");
+                        logout("config.json中的输出目录无效。");
                     }
                     if (!Directory.Exists(txt_SourceDir.Text))
                     {
-                        writeOutputlog("config.json中的源目录无效。");
+                        logout("config.json中的源目录无效。");
+                    }
+                    if (!File.Exists(txt_ffmpegPath.Text))
+                    {
+                        logout("config.json中的ffmpeg路径无效。");
                     }
                 }
             }
@@ -72,10 +78,12 @@ namespace ExtractBilibiliOffLineDownloadVideos
             }
         }
 
-        private void writeOutputlog(string text)
+        private void logout(string text)
         {
             outputBuilder.AppendLine(text);
             txt_Output.Text = outputBuilder.ToString();
+            txt_Output.SelectionStart = txt_Output.Text.Length;
+            txt_Output.ScrollToCaret();
         }
 
         /// <summary>
@@ -97,119 +105,130 @@ namespace ExtractBilibiliOffLineDownloadVideos
             {
                 return;
             }
-
-            Dictionary<int, List<VideoEntry>> videoEntryByAvidList = new Dictionary<int, List<VideoEntry>>();
+            //按title分组记录各entry中的视频信息
+            Dictionary<string, List<VideoEntry>> videoEntrysByTitle = new Dictionary<string, List<VideoEntry>>();
             FileInfo[] files = sourceDir.GetFiles("entry.json", SearchOption.AllDirectories);
             for (int i = 0; i < files.Length; i++)
             {
-                List<VideoEntry> videoEntrys = ScanVideoFromEntryFile(files[i]);
-                if (videoEntrys != null && videoEntrys.Count > 0)
+                var videoEntry = ScanVideoFromEntryFile(files[i]);
+                if (videoEntry != null)
                 {
-                    if (!videoEntryByAvidList.ContainsKey(videoEntrys[0].avid))
-                    {
-                        videoEntryByAvidList.Add(videoEntrys[0].avid, new List<VideoEntry>());
-                    }
-                    videoEntryByAvidList[videoEntrys[0].avid].AddRange(videoEntrys);
+                    List<VideoEntry> list = videoEntrysByTitle.ContainsKey(videoEntry.title)? videoEntrysByTitle[videoEntry.title]: new List<VideoEntry> ();
+                    list.Add(videoEntry);
+                    videoEntrysByTitle[videoEntry.title] = list;
+                }
+            }
+            List<VideoEntry> toScanVideos = new List<VideoEntry>();
+            foreach(var kvp in videoEntrysByTitle)
+            {
+                var list = kvp.Value;
+                var title = kvp.Key;
+                foreach(var entry in list)
+                {
+                    entry.outDirPath = Path.Combine(outputDirPath, entry.title);
+                    entry.outPath = Path.Combine(entry.outDirPath, $"{entry.partTitle}.mp4");
+                    toScanVideos.Add(entry);
                 }
             }
 
-            MoveVideoFiles(videoEntryByAvidList, outputDirPath);
+            MoveVideoFiles(toScanVideos);
         }
 
-        List<VideoEntry> ScanVideoFromEntryFile(FileInfo entryFileInfo)
+        VideoEntry ScanVideoFromEntryFile(FileInfo entryFileInfo)
         {
-            Console.WriteLine("entryFile = " + entryFileInfo.FullName);
+            logout("entryFile = " + entryFileInfo.FullName);
             DirectoryInfo entryFileDir = entryFileInfo.Directory;
-            FileInfo[] files = entryFileDir.GetFiles("*", SearchOption.AllDirectories);
-            List<FileInfo> videoFiles = new List<FileInfo>();
-            for (int i = 0; i < files.Length; i++)
-            {
-                if (files[i].Name.EndsWith(".blv") || files[i].Name.EndsWith(".flv") || files[i].Name.EndsWith(".mp4"))
-                {
-                    videoFiles.Add(files[i]);
-                }
-            }
 
-            JsonNode json = MiniJSON.jsonDecode(File.ReadAllText(entryFileInfo.FullName)) as Hashtable;
-            if (string.IsNullOrEmpty(json["title"].ToString()))
+            JsonNode json = JsonNode.Parse(File.ReadAllText(entryFileInfo.FullName));
+            if (string.IsNullOrEmpty(json["title"].GetValue<string>()))
             {
                 return null;
             }
-            int avid = (int)((double)json["avid"]);
-            string title = GetWindowsCanUseName(json["title"].ToString());
-            string part = GetWindowsCanUseName((json["page_data"] as Hashtable)["part"].ToString());
-            List<VideoEntry> videoEntrys = new List<VideoEntry>();
-            for (int i = 0; i < videoFiles.Count; i++)
+            string title = GetWindowsCanUseName(json["title"].GetValue<string>());
+            string typeTag = json["type_tag"].GetValue<string>();
+            var partNode = json["page_data"];
+            var partTitle = GetWindowsCanUseName(partNode["part"].GetValue<string>());
+            var toReturn = new VideoEntry
             {
-                //Console.WriteLine("videoFileAddresss = " + videoFiles[i].FullName);
-                VideoEntry videoEntry = new VideoEntry(avid);
-                videoEntry.fileInfo = videoFiles[i];
-                videoEntry.title = title;
-                videoEntry.part = part;
-                videoEntrys.Add(videoEntry);
-            }
-            return videoEntrys;
-        }
-
-        private void MoveVideoFiles(Dictionary<int, List<VideoEntry>> videoEntryByAvidList, string outPutDir)
-        {
-            List<int> videoIdList = new List<int>(videoEntryByAvidList.Keys);
-            for (int i = 0; i < videoIdList.Count; i++)
+                title = title,
+                partTitle = partTitle,
+                coverUrl = json["cover"].GetValue<string>(),
+            };
+            var contentDirPath = Path.Combine(entryFileDir.FullName, typeTag);
+            if(Directory.Exists(contentDirPath))
             {
-                List<VideoEntry> videoEntrys = new List<VideoEntry>(videoEntryByAvidList[videoIdList[i]]);
-                if (videoEntrys.Count == 1)
+                var videoPath = Path.Combine(contentDirPath, "video.m4s");
+                var audioPath = Path.Combine(contentDirPath, "audio.m4s");
+                if(File.Exists(videoPath) && File.Exists(audioPath))
                 {
-                    string newPath = outPutDir + Path.DirectorySeparatorChar + videoEntrys[0].title + videoEntrys[0].fileInfo.Extension;
-                    File.Move(videoEntrys[0].fileInfo.FullName, newPath);
+                    toReturn.contentPath = contentDirPath;
+                    return toReturn;
                 }
-                else if (videoEntrys.Count > 1)
+            }
+            return null;
+        }
+        //逐个entry处理
+        private void MoveVideoFiles(List<VideoEntry> videoEntryList)
+        {
+            foreach (var videoEntry in videoEntryList)
+            {
+                if (!Directory.Exists(videoEntry.outDirPath))
                 {
-                    string newDirectoryPath = outPutDir + Path.DirectorySeparatorChar + videoEntrys[0].title;
-                    Directory.CreateDirectory(newDirectoryPath);
-                    Dictionary<string, List<VideoEntry>> videoEntryByPartList = new Dictionary<string, List<VideoEntry>>();
-                    for (int j = 0; j < videoEntrys.Count; j++)
+                    Directory.CreateDirectory(videoEntry.outDirPath);
+                }
+                var videoDir = new DirectoryInfo(videoEntry.contentPath);
+                //启动命令行
+
+                System.Diagnostics.Process p = new System.Diagnostics.Process();
+                p.StartInfo.FileName = txt_ffmpegPath.Text;
+                p.StartInfo.Arguments = "-i video.m4s -i audio.m4s -vcodec copy -acodec copy new.mp4";
+                p.StartInfo.WorkingDirectory = videoEntry.contentPath;
+                //p.StartInfo.FileName = "cmd.exe";
+                p.StartInfo.UseShellExecute = false;            //是否使用操作系统shell启动
+                p.StartInfo.RedirectStandardInput = true;       //接受来自调用程序的输入信息
+                p.StartInfo.RedirectStandardOutput = false;     //由调用程序获取输出信息
+                p.StartInfo.RedirectStandardError = false;      //重定向标准错误输出
+                p.StartInfo.CreateNoWindow = false;              //不显示程序窗口
+                p.Start();
+
+                //切换工作目录
+
+                //p.StandardInput.WriteLine(videoDir.Root.ToString()[0] + ":");
+                //p.StandardInput.WriteLine("cd " + videoEntry.contentPath);
+
+                ////合成video
+
+                //p.StandardInput.WriteLine("ffmpeg -i video.m4s -i audio.m4s -vcodec copy -acodec copy new.mp4");       //防止文件名无效
+
+
+                p.StandardInput.AutoFlush = true;
+
+                p.WaitForExit();//等待程序执行完退出进程
+                p.Close();
+
+                //生成的文件移动到新位置
+                var newFilePath = Path.Combine(videoEntry.contentPath, "new.mp4");
+                //下载cover
+                if (!string.IsNullOrEmpty(videoEntry.coverUrl))
+                {
+                    var coverExt = Path.GetExtension(videoEntry.coverUrl);
+                    var coverPath = Path.Combine(videoEntry.outDirPath, "cover" + coverExt);
+                    using (var webClient = new WebClient())
                     {
-                        if (!videoEntryByPartList.ContainsKey(videoEntrys[j].part))
+                        try
                         {
-                            videoEntryByPartList.Add(videoEntrys[j].part, new List<VideoEntry>());
+                            webClient.DownloadFile(videoEntry.coverUrl, coverPath);
                         }
-                        videoEntryByPartList[videoEntrys[j].part].Add(videoEntrys[j]);
-                    }
-                    List<string> partList = new List<string>(videoEntryByPartList.Keys);
-                    if (partList.Count == 1)
-                    {
-                        for (int j = 0; j < videoEntrys.Count; j++)
+                        catch
                         {
-                            string newFilePart1 = newDirectoryPath + Path.DirectorySeparatorChar + videoEntrys[j].title;
-                            File.Move(videoEntrys[j].fileInfo.FullName, newFilePart1 + videoEntrys[j].fileInfo.Name);
-                        }
-                        //生成自动批处理合成配置文件 最后并执行
-                        GenertMergeVideoPlayerList(newDirectoryPath);
-                    }
-                    else if (partList.Count > 1)
-                    {
-                        for (int j = 0; j < partList.Count; j++)
-                        {
-                            newDirectoryPath = outPutDir + Path.DirectorySeparatorChar + videoEntrys[0].title;
-                            if (videoEntryByPartList[partList[j]].Count == 1)
-                            {
-                                string newFilePart1 = newDirectoryPath + Path.DirectorySeparatorChar + videoEntrys[j].part;
-                                File.Move(videoEntrys[j].fileInfo.FullName, newFilePart1 + videoEntrys[j].fileInfo.Extension);
-                            }
-                            else if (videoEntryByPartList[partList[j]].Count > 1)
-                            {
-                                newDirectoryPath = outPutDir + Path.DirectorySeparatorChar + videoEntrys[0].title
-                                    + Path.DirectorySeparatorChar + videoEntrys[j].part;
-                                for (int k = 0; k < videoEntryByPartList[partList[j]].Count; k++)
-                                {
-                                    string newFilePart1 = newDirectoryPath + Path.DirectorySeparatorChar + videoEntryByPartList[partList[j]][k].title;
-                                    File.Move(videoEntryByPartList[partList[j]][k].fileInfo.FullName, newFilePart1 + videoEntryByPartList[partList[j]][k].fileInfo.Name);
-                                }
-                                //生成自动批处理合成配置文件 最后并执行
-                                GenertMergeVideoPlayerList(newDirectoryPath);
-                            }
+                            logout($"下载封面失败：" + coverPath);
                         }
                     }
+                }
+                if (File.Exists(newFilePath))
+                {
+                    File.Move(newFilePath, videoEntry.outPath);
+                    logout($"已合并视频：{videoEntry.outPath}");
                 }
             }
         }
@@ -244,7 +263,7 @@ namespace ExtractBilibiliOffLineDownloadVideos
             p.StartInfo.RedirectStandardInput = true;       //接受来自调用程序的输入信息
             p.StartInfo.RedirectStandardOutput = false;     //由调用程序获取输出信息
             p.StartInfo.RedirectStandardError = false;      //重定向标准错误输出
-            p.StartInfo.CreateNoWindow = true;              //不显示程序窗口
+            p.StartInfo.CreateNoWindow = false;              //不显示程序窗口
             p.Start();                                      //启动程序
 
             //此处需要安装ffmpeg https://www.ffmpeg.org/download.html
@@ -303,43 +322,59 @@ namespace ExtractBilibiliOffLineDownloadVideos
             }
         }
 
+        private void btn_ChooseFfmpeg_Click(object sender, EventArgs e)
+        {
+            OpenFileDialog dlg = new OpenFileDialog();
+            if (File.Exists(txt_ffmpegPath.Text))
+            {
+                dlg.InitialDirectory = Path.GetDirectoryName(txt_ffmpegPath.Text);
+            }
+            dlg.Title = "选择ffmpeg.exe";
+            dlg.Filter = "ffmpeg.exe|ffmpeg.exe";
+            dlg.Multiselect = false;
+            dlg.CheckFileExists = true;
+
+            if (dlg.ShowDialog() == DialogResult.OK)
+            {
+                txt_ffmpegPath.Text = dlg.FileName;
+            }
+        }
+
         private void btn_Exec_Click(object sender, EventArgs e)
         {
             if (!Directory.Exists(txt_OutputDir.Text))
             {
-                writeOutputlog("输出目录无效。");
+                logout("输出目录无效。");
                 return;
             }
             if (!Directory.Exists(txt_SourceDir.Text))
             {
-                writeOutputlog("源目录无效。");
+                logout("源目录无效。");
+                return;
+            }
+            if (!File.Exists(txt_ffmpegPath.Text) || Path.GetExtension(txt_ffmpegPath.Text).ToLower() != ".exe")
+            {
+                logout("未正确设置设置ffmpeg路径。");
                 return;
             }
             writeConfigJson();
             ScanTheDirectory(txt_SourceDir.Text, txt_OutputDir.Text);
+            logout("处理完成。");
         }
     }
 
     internal class VideoEntry
 	{
-		internal int avid;
-		internal FileInfo videoFileInfo;
-		internal string title, part;
+        internal string contentPath;
+        internal string title, partTitle, coverUrl;
         /// <summary>
         /// 文件的最终输出路径
         /// </summary>
         internal string outPath;
 
         /// <summary>
-        /// 此文件的输出路径
+        /// 文件的输出路径所在文件夹
         /// </summary>
         internal string outDirPath;
-
-
-
-		internal VideoEntry(int avid)
-		{
-			this.avid = avid;
-		}
 	}
 }
